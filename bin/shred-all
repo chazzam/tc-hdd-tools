@@ -1,0 +1,61 @@
+#!/bin/bash
+# Written by Charles Moye cmoye@digium.com
+# Copyright 2012-2015 Charles Moye
+#
+#Licensed under the Apache License, Version 2.0 (the "License");
+#you may not use this file except in compliance with the License.
+#You may obtain a copy of the License at
+#
+#	http://www.apache.org/licenses/LICENSE-2.0
+#
+#Unless required by applicable law or agreed to in writing, software
+#distributed under the License is distributed on an "AS IS" BASIS,
+#WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#See the License for the specific language governing permissions and
+#limitations under the License.
+
+# shred-all.sh
+# Find and shred all hard-drives
+# Must be run as root or have sudo permissions for the current user for:
+# shred, fdisk
+
+#set -x;
+. /usr/local/etc/disk-tools.sh
+
+
+shred_args="$1";
+if [ ! -z "$shred_args" ]; then
+  echo "Giving time for system to finish bringing up devices...";
+  sleep 10
+fi;
+
+# Build list of standard volumes
+list_disks;
+
+echo -e "\n\n\nFound these potential devices: ";
+echo $SDXS;
+echo;
+echo "WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!";
+echo "This operation will wipe the contents and file system of the ";
+echo "confirmed drives. This operation is intended to be unrecoverable.";
+echo "Ensure you have good working backups of any important data.";
+echo "We will not be held liable for any lost data as a result of this process";
+echo "WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!";
+echo;
+
+for vol in $SDXS; do
+  echo -n "Erase disk at ${vol}? [YES|no]: ";
+  read y;
+  if [ ! -z "$shred_args" ] && [ "$y" == "YES" ]; then
+    $SUDO shred $shred_args $vol
+  elif [ "$y" == "YES" ]; then
+    $SUDO shred -fvz $vol
+  elif [ "$y" -ge "1" ]; then
+    $SUDO shred -fv -n $y $vol
+  else
+    echo -e "\nNot wiping ${vol}, did you mean to say 'YES'?...";
+  fi;
+done;
+echo -e "\n\n\nPress [Enter] to reboot. [ctrl + c] to exit."
+read y
+${SUDO} reboot;

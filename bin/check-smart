@@ -1,0 +1,55 @@
+#!/bin/bash
+# Written by Charles Moye cmoye@digium.com
+# Copyright 2012-2015 Charles Moye
+#
+#Licensed under the Apache License, Version 2.0 (the "License");
+#you may not use this file except in compliance with the License.
+#You may obtain a copy of the License at
+#
+#	http://www.apache.org/licenses/LICENSE-2.0
+#
+#Unless required by applicable law or agreed to in writing, software
+#distributed under the License is distributed on an "AS IS" BASIS,
+#WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#See the License for the specific language governing permissions and
+#limitations under the License.
+
+. /usr/local/etc/disk-tools.sh
+. /usr/local/etc/raid-tools.sh
+
+checkroot;
+device="$1"
+[ -z $device ] && device="sda";
+
+check_smart() {
+  local dev="$1";
+  $SMARTCTL $SMARTCTL_ARGS -cl selftest $dev|\
+        grep -EA1 -B1 'Self-test execution|^#\s+[0-3]'|\
+        grep -v Offline
+}
+
+identify_raid;
+if [ "$RAID_PRESENT" -gt 0 ]; then
+  INDEX=$(expr ${#RAID_DRIVES[@]} - 1);
+  loops="$(seq 0 $INDEX)";
+  if [ "${RAID_DRIVES[0]}" == "no" ]; then
+    loops=0;
+  fi;
+  for dev in $SDXS; do
+    for i in $loops; do
+      [ "$loops" = "0" ] && RAID_DRIVES[$i]="0";
+      echo "Checking $dev drive ${RAID_DRIVES[$i]}";
+      SMARTCTL_ARGS="${RAID_ARGS[$i]}";
+      check_smart $dev;
+      echo;
+    done;
+  done;
+  SMARTCTL_ARGS="";
+else
+  list_disks;
+  for dev in $SDXS; do
+    echo "Checking dev";
+    check_smart $dev;
+  done;
+fi;
+

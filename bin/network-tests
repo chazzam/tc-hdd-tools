@@ -1,0 +1,114 @@
+#!/bin/bash
+# Written by Charles Moye cmoye@digium.com
+# Copyright 2012-2015 Charles Moye
+#
+#Licensed under the Apache License, Version 2.0 (the "License");
+#you may not use this file except in compliance with the License.
+#You may obtain a copy of the License at
+#
+#	http://www.apache.org/licenses/LICENSE-2.0
+#
+#Unless required by applicable law or agreed to in writing, software
+#distributed under the License is distributed on an "AS IS" BASIS,
+#WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#See the License for the specific language governing permissions and
+#limitations under the License.
+
+# -i IP
+# -c Count
+# -p Packet Size
+# -o Log File
+# -L (run large ping test)
+
+usage() {
+  cat << EOF
+usage: $0 options
+
+This tries to hold some of the network tests we've tried to use in FA
+
+OPTIONS:
+  -i <IP Address>    IP of remote endpoint involved in a test
+  -c <count>         Number of times to run a given test
+  -p <Packet Size>   Packet size for Large Ping test
+  -o <log file>      Name of a file to use for logging some test results
+  -L                 Run the Large Ping test COUNT times in a loop
+                     (ping -qc100 -s<Packet Size> <IP>)
+                     
+EOF
+}
+
+large_ping() {
+  local ip="$1";
+  local count="$2";
+  local psize="$3";
+  local log_file="$4";
+  local count_len=${#count};
+  local printf_format="%s #%${count_len}d large packets:\n";
+  for i in $(seq 1 $count); do
+    #echo -n "$(date -u \+%Y%m%dT%H%M%SZ) $i ";
+    { 
+      printf "$printf_format" "$(date -u \+%Y%m%dT%H%M%SZ)" $i;
+      #ping -qc100 -s $psize $ip 2>&1;
+      ping -qc100 -s $psize $ip;
+    }|
+      grep -E 'packet loss|[TZ0-9]{16}'|
+      tr [:space:] ' '|
+      sed -e 's/packets\? //g;s/$/\n/;'|
+      tee -a $log_file;
+  done;
+}
+
+while getopts ":i:c:p:o:L" opt; do
+  case $opt in
+    i)
+      IP="$OPTARG"
+      ;;
+    c)
+      COUNT="$OPTARG"
+      ;;
+    p)
+      PSIZE="$OPTARG"
+      ;;
+    o)
+      OUTPUT="$OPTARG"
+      ;;
+    L)
+      TESTS[${#TESTS[@]}]="$opt";
+      ;;
+    ?)
+      usage;
+      exit;
+      ;;
+    :)
+      echo "Option $OPTARG requires an argument"
+      exit 1;
+      ;;
+  esac;
+done;
+
+if [[ -z $IP ]]; then
+  echo "Must specify IP"
+  exit 1;
+fi;
+
+[[ -z $COUNT ]] && COUNT=100;
+[[ -z $PSIZE ]] && PSIZE=6553;
+[[ -z $OUTPUT ]] && OUTPUT="/dev/null"
+
+# For now, default to running large ping test. 
+# TODO: Remove this if we add more tests?
+[ -z ${#TESTS[@]} ] && TESTS[${#TESTS[@]}]="L";
+
+if [ -z ${#TESTS[@]} ]; then
+  echo "Must select a test!!";
+  exit 1;
+fi;
+
+for TEST in ${TESTS[@]}; do
+  case $TEST in
+    L)
+      large_ping "$IP" "$COUNT" "$PSIZE" "$OUTPUT";
+      ;;
+  esac;
+done;
+
