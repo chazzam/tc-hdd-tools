@@ -1,6 +1,6 @@
 #!/bin/bash
 # Written by Charles Moye cmoye@digium.com
-# Copyright 2012-2015 Charles Moye
+# Copyright 2012-2016 Charles Moye
 #
 #Licensed under the Apache License, Version 2.0 (the "License");
 #you may not use this file except in compliance with the License.
@@ -22,12 +22,12 @@
 #set -x;
 . /usr/local/etc/disk-tools.sh
 
+checkroot;
 
 shred_args="$1";
-if [ ! -z "$shred_args" ]; then
-  echo "Giving time for system to finish bringing up devices...";
-  sleep 10
-fi;
+if [ "$shred_args" = "long" ]; then
+  shred_args="-fvz -n 7"
+fi
 
 # Build list of standard volumes
 list_disks;
@@ -46,9 +46,9 @@ echo;
 for vol in $SDXS; do
   echo -n "Erase disk at ${vol}? [YES|no]: ";
   read y;
-  if [ ! -z "$shred_args" ] && [ "$y" == "YES" ]; then
+  if [ ! -z "$shred_args" ] && [ "$y" = "YES" ]; then
     $SUDO shred $shred_args $vol
-  elif [ "$y" == "YES" ]; then
+  elif [ "$y" = "YES" ]; then
     $SUDO shred -fvz $vol
   elif [ "$y" -ge "1" ]; then
     $SUDO shred -fv -n $y $vol

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Written by Charles Moye cmoye@digium.com
-# Copyright 2012-2015 Charles Moye
+# Copyright 2012-2016 Charles Moye
 #
 #Licensed under the Apache License, Version 2.0 (the "License");
 #you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ OPTIONS:
   -o <log file>      Name of a file to use for logging some test results
   -L                 Run the Large Ping test COUNT times in a loop
                      (ping -qc100 -s<Packet Size> <IP>)
-                     
+
 EOF
 }
 
@@ -45,8 +45,7 @@ large_ping() {
   local count_len=${#count};
   local printf_format="%s #%${count_len}d large packets:\n";
   for i in $(seq 1 $count); do
-    #echo -n "$(date -u \+%Y%m%dT%H%M%SZ) $i ";
-    { 
+    {
       printf "$printf_format" "$(date -u \+%Y%m%dT%H%M%SZ)" $i;
       #ping -qc100 -s $psize $ip 2>&1;
       ping -qc100 -s $psize $ip;
@@ -95,7 +94,7 @@ fi;
 [[ -z $PSIZE ]] && PSIZE=6553;
 [[ -z $OUTPUT ]] && OUTPUT="/dev/null"
 
-# For now, default to running large ping test. 
+# For now, default to running large ping test.
 # TODO: Remove this if we add more tests?
 [ -z ${#TESTS[@]} ] && TESTS[${#TESTS[@]}]="L";
 
