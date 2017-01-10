@@ -1,0 +1,57 @@
+#!/bin/bash
+# Written by Charles Moye cmoye@digium.com
+# Copyright 2012-2017 Charles Moye
+#
+#Licensed under the Apache License, Version 2.0 (the "License");
+#you may not use this file except in compliance with the License.
+#You may obtain a copy of the License at
+#
+#	http://www.apache.org/licenses/LICENSE-2.0
+#
+#Unless required by applicable law or agreed to in writing, software
+#distributed under the License is distributed on an "AS IS" BASIS,
+#WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#See the License for the specific language governing permissions and
+#limitations under the License.
+
+#set -x;
+. /usr/local/etc/disk-tools.sh
+
+checkroot;
+
+load_cmdline;
+SHRED_RUN=""
+
+smart_shred() {
+  # If smart fails, run shred, then run smart again
+  smart-all -a
+  if [ "$(smart_status)" != "1" ]; then
+    shred-all super-long auto
+    SHRED_RUN="1"
+    smart-all -a
+  fi
+}
+
+if [ -z "$SITE" -o "$SITE" = "DEFAULT" ]; then
+  fsck-all short yes
+elif [ "$SITE" = "TS" ]; then
+  fsck-all long yes
+  prompt_lcd
+  smart-all -a
+  run_hdparm
+elif [ "$SITE" = "HDD" ]; then
+  smart-shred
+  run_hdparm
+elif [ "$SITE" = "FA" ]; then
+  prompt_system
+  detect_cards
+  prompt_lcd
+  smart-shred
+  run_hdparm
+  network-tests -i $NETWORK_TEST_SERVER -o $L_NETWORK
+  network-tests-stats $L_NETWORK
+  [ -z "$SHRED_RUN" ] && shred-all long auto
+fi
+
+# Bundle logs
+tar -C /tmp -zxf tools-logs.tar.gz "${LOG_DIR##/tmp/}"/*

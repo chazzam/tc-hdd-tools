@@ -1,6 +1,6 @@
 #!/bin/bash
 # Written by Charles Moye cmoye@digium.com
-# Copyright 2012-2016 Charles Moye
+# Copyright 2012-2017 Charles Moye
 #
 #Licensed under the Apache License, Version 2.0 (the "License");
 #you may not use this file except in compliance with the License.
@@ -25,9 +25,13 @@
 checkroot;
 
 shred_args="$1";
+shift;
 if [ "$shred_args" = "long" ]; then
   shred_args="-fvz -n 7"
+elif [ "$shred_args" = "super-long" ]; then
+  shred_args="-fvz -n 30"
 fi
+[ "$1" = "auto" ] && AUTO=1;
 
 # Build list of standard volumes
 list_disks;
@@ -46,7 +50,9 @@ echo;
 this_run=""
 for vol in $SDXS; do
   echo -n "Erase disk at ${vol}? [YES|no]: ";
-  read y;
+  [ ! -z "$AUTO" ] && \
+    y="YES" || \
+    read y;
   if [ ! -z "$shred_args" ] && [ "$y" = "YES" ]; then
     this_run="$shred_args $vol"
   elif [ "$y" = "YES" ]; then
@@ -60,6 +66,7 @@ for vol in $SDXS; do
   $SUDO shred $this_run 2>> $L_SHRED
 done;
 echo "shred done" >> $L_SHRED
+[ ! -z "$AUTO" ] && exit 0
 echo -e "\n\n\nPress [Enter] to reboot. [ctrl + c] to exit."
 read y
 ${SUDO} reboot;

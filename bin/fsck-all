@@ -1,6 +1,6 @@
 #!/bin/bash
 # Written by Charles Moye cmoye@digium.com
-# Copyright 2012-2016 Charles Moye
+# Copyright 2012-2017 Charles Moye
 #
 #Licensed under the Apache License, Version 2.0 (the "License");
 #you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@ check_arguments() {
   local i
   AUTOACCEPT="";
   TRIM="";
+  AUTO="";
   for i in $@; do
     case $i in
       short|SHORT|Short)
@@ -58,6 +59,9 @@ check_arguments() {
         ;;
       trim|TRIM|Trim)
         TRIM="$TRIM_ARGS";
+        ;;
+      auto|AUTO|Auto)
+        AUTO="1";
         ;;
       *)
         cat<<EOF
@@ -109,6 +113,7 @@ for vol in $SDX_VOLS $LVM_VOLS; do
     echo -e "\n\n\nNot checking $FILE_TYPE filesystem at $vol, not supported";
   fi
 done;
+[ ! -z "$AUTO" ] && exit 0
 if [ ! -z $AUTOACCEPT ]; then
   echo -e "\n\n\nPress Enter to reboot. [ctrl + c] to exit."
   read y

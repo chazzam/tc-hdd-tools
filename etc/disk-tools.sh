@@ -1,6 +1,6 @@
 #!/bin/bash
 # Written by Charles Moye cmoye@digium.com
-# Copyright 2012-2016 Charles Moye
+# Copyright 2012-2017 Charles Moye
 #
 #Licensed under the Apache License, Version 2.0 (the "License");
 #you may not use this file except in compliance with the License.
@@ -18,14 +18,17 @@
 
 SUDO=$(which sudo);
 SMARTCTL=$(which smartctl);
-LOG_DIR="/tmp/tools"
+LOG_DIR="/tmp/tools-logs"
 [ -d $LOG_DIR ] || mkdir -p $LOG_DIR
 L_SMART="$LOG_DIR/smart.log"
 L_DRIVES="$LOG_DIR/drives.lst"
 L_SHRED="$LOG_DIR/shred.log"
 L_NETWORK_STATS="$LOG_DIR/network-stats.log"
 L_NETWORK="$LOG_DIR/network.log"
+L_LCD="$LOG_DIR/lcd.log"
 L_HDPARM="$LOG_DIR/hdparm"
+L_CARDS="$LOG_DIR/cards.lst"
+L_SYSTEM="$LOG_DIR/system.log"
 
 list_sdxn() {
   checkroot;
@@ -129,7 +132,7 @@ smart_init() {
     #$SMARTCTL -c $sdrive;
     $SMARTCTL -H $sdrive 2>&1|grep "test result";
     echo -e "===============================================================================\n";
-  ) tee -a $L_SMART
+  ) | tee -a $L_SMART
 }
 
 smart_test() {
@@ -212,11 +215,40 @@ smart_check() {
   [ -z "$id" ] && id="${sdrive%% *}";
   (
     echo "Checking $id";
-    $SMARTCTL -a $dr|grep SMART|grep 'self-assessment'
+    $SMARTCTL -a $sdrive|grep SMART|grep 'self-assessment'
     $SMARTCTL -cl selftest $sdrive|\
           grep -EA1 -B1 'Self-test execution|^#\s+[0-3]'|\
           grep -v Offline
   )|tee -a $L_SMART
+}
+
+smart_status_log() {
+  local stest="$1"
+  shift
+  local sdrive="$@"
+  local log=""
+  local output="0"
+  $SMARTCTL -Hl selftest $sdrive 2>&1 >> $L_SMART
+  log="$($SMARTCTL -H $sdrive|grep ^#|sed -e 's/\s\s\+/,/g;'|
+    grep -i $stest|head -n1)"
+  [ "$(echo $log|cut -d, -f3)" = "Completed without error" ] && \
+    output="1"
+  echo $output
+}
+
+smart_status() {
+  local sdrive="$@";
+  local overall="0"
+  local short="0"
+  local conveyance="1"
+  local long="0"
+  overall="$($SMARTCTL -H $sdrive|grep SMART|grep 'self-assessment'|
+    grep -o ': ....'|cut -d\  -f2)"
+  [ "$overall" = "PASS" ] && overall=1 || overall="0"
+  short="$(smart_status_log Short)"
+  conveyance="$(smart_status_log Conveyance)"
+  long="$(smart_status_log Extended)"
+  echo $(( $overall & $short & $conveyance & $long ))
 }
 
 continue_pause() {
@@ -227,14 +259,18 @@ continue_pause() {
 
 install_bc() {
   if [ "$(which bc)" == "" ]; then
-    ( sudo -u tc tce-load -wi bc ||
-      sudo -u tc tce-load -wi bc-1.06.94 ) ||
+    ` sudo -u tc tce-load -wi bc ||
+      sudo -u tc tce-load -wi bc-1.06.94 ` ||
       echo "ERROR: 'bc' unavailable" && exit 1
   fi
 }
 
+thousands() {
+  echo "$@"|sed -re ' :restart ; s/([0-9])([0-9]{3})($|[^0-9])/\1,\2\3/ ; t restart '
+}
+
 hdparm_stat() {
-  local line="$1" # cached or disk
+  local line="$1" # cache or disk
   local f="$2" # file
   local base=""
   local unit=""
@@ -242,32 +278,104 @@ hdparm_stat() {
   local count=0
   base="$(grep $line $f|cut -d= -f2)"
   unit="$(echo $base|cut -d\  -f2)"
-  count="$(echo $base|grep -o sec|wc -l)"
+  count="$(echo $base|grep -o \/s|wc -l)"
   avg="$(echo $base|sed -e 's# [A-Za-z/]\+##g;s/ / + /g;')"
-  avg=$(printf "scale=2;( %s ) / %s\n" "$avg" $count|bc)
-  printf "%s %s" "$avg" "$unit"
+  avg=$(printf "scale=2;( %s ) / %s\n" "$avg" "$count"|bc)
+  printf "%s %s" "$(thousands $avg)" "$unit"
 }
 
 run_hdparm() {
-  #~ /dev/sda:
-  #~  Timing cached reads:   20888 MB in  2.00 seconds = 10454.66 MB/sec
-  #~  Timing buffered disk reads: 1330 MB in  3.00 seconds = 442.99 MB/sec
-  local dr=""
+  local dr="";local d=""
   local logfile="$(basename $L_HDPARM)"
   [ -z "$SDX_VOLS" ] && list_sdxn
   [ -z "$LVM_VOLS" ] && list_lvm
+  ( install_bc );
   for dr in $SDX_VOLS $LVM_VOLS; do
     dr="${dr%% *}"
-    dr="${dr##/dev/}"
-    dr="${dr##mapper/}"
-    hdparm -tT $dr $dr $dr|tee -a "${L_HDPARM}-vol-$dr.log"
+    d="$dr"
+    #d="$(readlink -f $d)"
+    d="${d##/dev/}"
+    d="${d##mapper/}"
+    d="${d##VolGroup*/}"
+    d="${d##*/}"
+    hdparm -tT $dr $dr $dr|tee -a "${L_HDPARM}-vol-$d.log"
   done;
+  printf "\n\n"
   for dr in $(find $LOG_DIR -name "${logfile}-vol*"); do
-    printf
-      "Average Reads:: Vol: %s disk: %s cached: %s\n"
-      "$(basename -s .log ${dr##$logfile-vol-})"
-      "$(hdparm_stat disk $dr)"
-      "$(hdparm_stat cached $dr)"
-    |tee -a "${L_HDPARM}-stats.log"
+    dr="$dr"
+    printf \
+      "Average Reads %s:: disk: %s cached: %s\n" \
+      "$(basename -s .log ${dr/${logfile}-vol-/})" \
+      "$(hdparm_stat disk $dr)" \
+      "$(hdparm_stat cache $dr)" \
+    | tee -a "${L_HDPARM}-stats.log"
   done;
+}
+
+detect_cards() {
+  local cards="$(lspci -nn -d d161:*|wc -l)"
+  (
+    printf "\nDetected %s cards:\n" $cards
+    lspci -nn -d d161:*
+  ) | tee -a $L_CARDS
+}
+
+prompt_lcd() {
+  # Run LCD Test?
+  # if yes, log and direct
+  # Press X, (Check), Down, Left, Right, Up
+  # verify that the screen updates correspondingly, and that the Backlight adjusts
+  printf "\n\nRun LCD Test?\n[Yn]: "
+  local y=;
+  read y;
+  [ "$y" = "n" -o "$y" = "N" ] && return
+  (
+    cat<<EOF
+To Test the LCD, Press the keys below, in the order listed.
+Verify that the Front Panel LCD screen updates correspondingly, and that
+the Backlight changes.
+
+Press:
+X, (Check), Down, Left, Right, Up
+
+Did the LCD update properly? [yN]: 
+EOF
+  read y
+  if [ "$y" = "y" -o "$y" = "Y" ]; then
+    printf "This shall be logged as LCD Test PASSed\n"
+  else
+    printf "This shall be logged as LCD Test FAILed\n"
+  fi
+  ) | tee -a $L_LCD
+  # get results: egrep -o 'LCD Test ....' $L_LCD|tail -n1|cut -d\  -f3|tr '[:lower:]' '[:upper:]'
+  # leaves you with either 'PASS' or 'FAIL'
+}
+
+load_cmdline() {
+  local arg=""
+  for arg in $(cat /proc/cmdline); do
+      echo $arg | grep -iq "TESTER-";
+      if [ "$?" = "0" ]; then
+          export $(echo $arg | cut -d- -f2);
+      fi;
+  done
+}
+
+prompt_system() {
+  local y=;
+  printf "\n\nStore RMA-Number?\n[Yn]: "
+  read y;
+  [ "$y" = "n" -o "$y" = "N" ] && return
+  printf "\nEnter RMA-Number: "
+  local rma=
+  read rma;
+  printf "\n\nStore Serial Number?\n[Yn]: "
+  read y;
+  local sn="."
+  if [ "$y" != "n" -a "$y" != "N" ]; then
+    printf "\nEnter Serial Number: "
+    read sn;
+  fi
+  printf "\n\n"
+  printf "RMA=%s\nSERIAL=%s\n" "$rma" "$sn"| tee -a "$L_SYSTEM"
 }

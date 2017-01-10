@@ -1,6 +1,6 @@
 #!/bin/sh
 # Written by Charles Moye cmoye@digium.com
-# Copyright 2012-2016 Charles Moye
+# Copyright 2012-2017 Charles Moye
 #
 #Licensed under the Apache License, Version 2.0 (the "License");
 #you may not use this file except in compliance with the License.
@@ -52,7 +52,7 @@ packetloss_stats() {
 
 . /usr/local/etc/disk-tools.sh
 
-install_bc;
+(install_bc);
 LOG="$1"
 [ -z "$LOG" ] && LOG="$L_NETWORK"
 if [ ! -r "$LOG" ]; then
