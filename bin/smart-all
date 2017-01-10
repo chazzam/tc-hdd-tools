@@ -64,6 +64,7 @@ EOF
         ;;
     esac
   done;
+  [ -z "$TESTS" -a ! -z "$AUTO" ] && TESTS="short conveyance long";
   echo "Selected Tests: $TESTS";
 }
 

@@ -63,9 +63,16 @@ for vol in $SDXS; do
     echo -e "\nNot wiping ${vol}, did you mean to say 'YES'?...";
   fi;
   echo "shred $this_run" >> $L_SHRED
-  $SUDO shred $this_run 2>> $L_SHRED
+  $SUDO shred $this_run 2>&1|tee -a $L_SHRED
 done;
-echo "shred done" >> $L_SHRED
+printf "shred done\n\n"|tee -a $L_SHRED
+# Pare down the size of the log by removing the progress lines
+sed -i -n '/ [0-9][0-9]\?[0-9]\?%/{h;$!b;g};x;p' $L_SHRED
+# match a progress line, put it in hold space, next line (branch) if not end, copy hold to pattern space
+# if not a match, replace pattern with hold, and print
+# will otherwise delete the last line of the file, and the last line before each match
+# will print the last line of each match range, to show the percent completion reached in a wipe pass
+
 [ ! -z "$AUTO" ] && exit 0
 echo -e "\n\n\nPress [Enter] to reboot. [ctrl + c] to exit."
 read y

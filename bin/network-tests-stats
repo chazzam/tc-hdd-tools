@@ -47,7 +47,10 @@ packetloss_stats() {
   #loss="$(expr $additional_loss \* 100 + $loss)";
   loss="$(expr $additional_loss + $loss)";
   local percent=$(echo "scale=15;$loss/$total"|bc);
-  echo "$loss/$total = $percent";
+  local pass=$(echo "$percent < 0.02"|bc)
+  [ "$pass" = "1" ] && pass="PASS" || pass="FAIL"
+  printf "Large Ping test:%s -> %s/%s lost = %s %% loss\n" \
+    "$pass" "$loss" "$total" "$percent";
 }
 
 . /usr/local/etc/disk-tools.sh

@@ -98,9 +98,9 @@ fi;
 
 # For now, default to running large ping test.
 # TODO: Remove this if we add more tests?
-[ -z ${#TESTS[@]} ] && TESTS[${#TESTS[@]}]="L";
+[ "${#TESTS[@]}" = "0" ] && TESTS[${#TESTS[@]}]="L";
 
-if [ -z ${#TESTS[@]} ]; then
+if [ "${#TESTS[@]}" = "0" ]; then
   echo "Must select a test!!";
   exit 1;
 fi;

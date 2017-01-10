@@ -229,8 +229,13 @@ smart_status_log() {
   local log=""
   local output="0"
   $SMARTCTL -Hl selftest $sdrive 2>&1 >> $L_SMART
-  log="$($SMARTCTL -H $sdrive|grep ^#|sed -e 's/\s\s\+/,/g;'|
+  log="$($SMARTCTL -l selftest $sdrive|grep ^#|sed -e 's/\s\s\+/,/g;'|
     grep -i $stest|head -n1)"
+  if [ -z "$log" -a "$stest" = "Conveyance" ]; then
+    # conveyance isnt always supported
+    echo 1
+    return
+  fi
   [ "$(echo $log|cut -d, -f3)" = "Completed without error" ] && \
     output="1"
   echo $output
@@ -245,9 +250,9 @@ smart_status() {
   overall="$($SMARTCTL -H $sdrive|grep SMART|grep 'self-assessment'|
     grep -o ': ....'|cut -d\  -f2)"
   [ "$overall" = "PASS" ] && overall=1 || overall="0"
-  short="$(smart_status_log Short)"
-  conveyance="$(smart_status_log Conveyance)"
-  long="$(smart_status_log Extended)"
+  short="$(smart_status_log Short $sdrive)"
+  conveyance="$(smart_status_log Conveyance $sdrive)"
+  long="$(smart_status_log Extended $sdrive)"
   echo $(( $overall & $short & $conveyance & $long ))
 }
 
@@ -287,10 +292,11 @@ hdparm_stat() {
 run_hdparm() {
   local dr="";local d=""
   local logfile="$(basename $L_HDPARM)"
-  [ -z "$SDX_VOLS" ] && list_sdxn
-  [ -z "$LVM_VOLS" ] && list_lvm
+  [ -z "$SDXS" ] && list_disks
+  #[ -z "$LVM_VOLS" ] && list_lvm
   ( install_bc );
-  for dr in $SDX_VOLS $LVM_VOLS; do
+  #for dr in $SDXS $LVM_VOLS; do
+  for dr in $SDXS; do
     dr="${dr%% *}"
     d="$dr"
     #d="$(readlink -f $d)"

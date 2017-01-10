@@ -56,4 +56,4 @@ elif [ "$SITE" = "FA" ]; then
 fi
 
 # Bundle logs
-tar -C /tmp -zxf tools-logs.tar.gz "${LOG_DIR##/tmp/}"/*
+tar -C /tmp -cxf tools-logs.tar.gz "${LOG_DIR##/tmp/}"/*
