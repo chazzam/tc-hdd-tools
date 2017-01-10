@@ -90,9 +90,11 @@ if [[ -z $IP ]]; then
   exit 1;
 fi;
 
+. /usr/local/etc/disk-tools.sh
+
 [[ -z $COUNT ]] && COUNT=100;
 [[ -z $PSIZE ]] && PSIZE=6553;
-[[ -z $OUTPUT ]] && OUTPUT="/dev/null"
+[[ -z $OUTPUT ]] && OUTPUT="$L_NETWORK"
 
 # For now, default to running large ping test.
 # TODO: Remove this if we add more tests?

@@ -43,19 +43,23 @@ echo "We will not be held liable for any lost data as a result of this process";
 echo "WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!";
 echo;
 
+this_run=""
 for vol in $SDXS; do
   echo -n "Erase disk at ${vol}? [YES|no]: ";
   read y;
   if [ ! -z "$shred_args" ] && [ "$y" = "YES" ]; then
-    $SUDO shred $shred_args $vol
+    this_run="$shred_args $vol"
   elif [ "$y" = "YES" ]; then
-    $SUDO shred -fvz $vol
+    this_run="-fvz $vol"
   elif [ "$y" -ge "1" ]; then
-    $SUDO shred -fv -n $y $vol
+    this_run="-fv -n $y $vol"
   else
     echo -e "\nNot wiping ${vol}, did you mean to say 'YES'?...";
   fi;
+  echo "shred $this_run" >> $L_SHRED
+  $SUDO shred $this_run 2>> $L_SHRED
 done;
+echo "shred done" >> $L_SHRED
 echo -e "\n\n\nPress [Enter] to reboot. [ctrl + c] to exit."
 read y
 ${SUDO} reboot;

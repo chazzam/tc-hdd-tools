@@ -65,8 +65,7 @@ EOF
 }
 
 checkroot;
-echo -e "\nWill present options for short, conveyance, and long tests";
-echo -e "Do not select a test that is not supported by the drive\n";
+echo -e "\nSupports running short, conveyance, and long tests";
 
 select_tests $@;
 identify_drives;

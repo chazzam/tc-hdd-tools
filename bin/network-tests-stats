@@ -50,15 +50,14 @@ packetloss_stats() {
   echo "$loss/$total = $percent";
 }
 
-if [ "$(which bc)" == "" ]; then
-  sudo -u tc tce-load -wi bc ||
-    sudo -u tc tce-load -wi bc-1.06.94 ||
-    echo "ERROR: 'bc' unavailable" && exit 1
-fi
+. /usr/local/etc/disk-tools.sh
 
-if [ "$1" == "" ]; then
-  echo "Must specify a log file"
+install_bc;
+LOG="$1"
+[ -z "$LOG" ] && LOG="$L_NETWORK"
+if [ ! -r "$LOG" ]; then
+  echo "Must specify an existing log file"
   exit 1
 fi
 
-packetloss_stats $1
+(packetloss_stats $LOG)|tee -a $L_NETWORK_STATS
