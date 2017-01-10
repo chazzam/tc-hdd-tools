@@ -259,8 +259,8 @@ continue_pause() {
 
 install_bc() {
   if [ "$(which bc)" == "" ]; then
-    ` sudo -u tc tce-load -wi bc ||
-      sudo -u tc tce-load -wi bc-1.06.94 ` ||
+    (sudo -u tc tce-load -wi bc ||
+      sudo -u tc tce-load -wi bc-1.06.94) ||
       echo "ERROR: 'bc' unavailable" && exit 1
   fi
 }

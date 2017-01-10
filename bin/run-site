@@ -32,6 +32,8 @@ smart_shred() {
   fi
 }
 
+[ -x /usr/local/etc/init.d/lcdproc ] && /usr/local/etc/init.d/lcdproc start 2>/dev/null
+
 if [ -z "$SITE" -o "$SITE" = "DEFAULT" ]; then
   fsck-all short yes
 elif [ "$SITE" = "TS" ]; then
@@ -40,13 +42,13 @@ elif [ "$SITE" = "TS" ]; then
   smart-all -a
   run_hdparm
 elif [ "$SITE" = "HDD" ]; then
-  smart-shred
+  smart_shred
   run_hdparm
 elif [ "$SITE" = "FA" ]; then
   prompt_system
   detect_cards
   prompt_lcd
-  smart-shred
+  smart_shred
   run_hdparm
   network-tests -i $NETWORK_TEST_SERVER -o $L_NETWORK
   network-tests-stats $L_NETWORK
