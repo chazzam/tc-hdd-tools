@@ -25,7 +25,7 @@ SHRED_RUN=""
 smart_shred() {
   # If smart fails, run shred, then run smart again
   smart-all -a
-  if [ "$(smart_status)" != "1" ]; then
+  if [ "$(smart_status_all)" != "1" ]; then
     shred-all super-long auto
     SHRED_RUN="1"
     smart-all -a

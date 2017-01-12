@@ -256,6 +256,17 @@ smart_status() {
   echo $(( $overall & $short & $conveyance & $long ))
 }
 
+smart_status_all() {
+  local dr=""
+  local status=""
+  for dr in "${ALL_SMART[@]}"; do
+    [ -z "$status" ] && status="1"
+    status=$(($status & $(smart_status $dr)))
+  done
+  [ -z "$status" ] && status="0"
+  echo $status
+}
+
 continue_pause() {
   local y=;
   echo "Press [Enter] to continue or [ctrl + c] to exit";
@@ -319,10 +330,13 @@ run_hdparm() {
 }
 
 detect_cards() {
-  local cards="$(lspci -nn -d d161:*|wc -l)"
+  # RAID:: Threeware 13c1:* ; Adaptec 9005:* ; LSI 1000:* ;
+  # Digium Cards: d161:*
+  # Digium PCI-E Active Riser: 111d:806e
+  local cards="$(lspci -n|egrep '((d161|13c1|9005|1000):|111d:806e)'|wc -l)"
   (
     printf "\nDetected %s cards:\n" $cards
-    lspci -nn -d d161:*
+    lspci -nn|egrep '((d161|13c1|9005|1000):|111d:806e)'
   ) | tee -a $L_CARDS
 }
 
