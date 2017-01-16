@@ -29,6 +29,12 @@ L_LCD="$LOG_DIR/lcd.log"
 L_HDPARM="$LOG_DIR/hdparm"
 L_CARDS="$LOG_DIR/cards.lst"
 L_SYSTEM="$LOG_DIR/system.log"
+SHRED_RUN=""
+
+exerr() {
+  printf "\n%s\n" $@
+  exit 1
+}
 
 list_sdxn() {
   checkroot;
@@ -152,10 +158,11 @@ smart_test() {
 smart_process() {
   local dr=
   local t=
-  [ -z "${ALL_SMART[@]}" ] && identify_drives;
+  [ -z "${ALL_SMART[0]}" ] && identify_drives;
   for dr in "${ALL_SMART[@]}"; do
     smart_init "$dr";
   done;
+  [ -z "$TESTS" ] && TESTS="short conveyance long"
   for t in $TESTS; do
     local i=0;
     for dr in "${ALL_SMART[@]}"; do
@@ -267,7 +274,7 @@ smart_status() {
 smart_status_all() {
   local dr=""
   local status=""
-  [ -z "${ALL_SMART[@]}" ] && identify_drives;
+  [ -z "${ALL_SMART[0]}" ] && identify_drives;
   for dr in "${ALL_SMART[@]}"; do
     [ -z "$status" ] && status="1"
     status=$(($status & $(smart_status $dr)))
@@ -335,13 +342,10 @@ run_hdparm() {
   local dr="";local d=""
   local logfile="$(basename $L_HDPARM)"
   [ -z "$SDXS" ] && list_disks
-  #[ -z "$LVM_VOLS" ] && list_lvm
   ( install_bc );
-  #for dr in $SDXS $LVM_VOLS; do
   for dr in $SDXS; do
     dr="${dr%% *}"
     d="$dr"
-    #d="$(readlink -f $d)"
     d="${d##/dev/}"
     d="${d##mapper/}"
     d="${d##VolGroup*/}"
@@ -429,4 +433,27 @@ prompt_system() {
   fi
   printf "\n\n"
   printf "RMA=%s\nSERIAL=%s\n" "$rma" "$sn"| tee -a "$L_SYSTEM"
+}
+
+call_shred() {
+  if [ "$(all_ssd)" = "1" ]; then
+    # log to shred log that this is ssd and we won't shred
+    printf "\n\nSSDs detected, skipping shred. Run Security Erase instead\n\n"|
+      tee -a L_SHRED
+    return 0
+  fi
+  local shred_args="$@"
+  [ -z "$shred_args" ] && shred_args="long"
+  shred-all $shred_args auto || exerr "Couldn't run shred or shred failed"
+  SHRED_RUN="1"
+}
+
+smart_shred() {
+  # If smart fails, run shred, then run smart again
+  [ -z "${ALL_SMART[0]}" ] && identify_drives;
+  smart_process || exerr "Smart failed to run";
+  if [ "$(smart_status_all)" != "1" ]; then
+    call_shred "super-long";
+    smart_process || exerr "Smart failed to run";
+  fi
 }
