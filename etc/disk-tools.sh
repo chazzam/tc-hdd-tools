@@ -152,6 +152,7 @@ smart_test() {
 smart_process() {
   local dr=
   local t=
+  [ -z "${ALL_SMART[@]}" ] && identify_drives;
   for dr in "${ALL_SMART[@]}"; do
     smart_init "$dr";
   done;
@@ -235,6 +236,13 @@ smart_status_log() {
     # conveyance isnt always supported
     echo 1
     return
+  elif [ -z "$log" -a ! -z "$($SMARTCTL -l selftest $sdrive|grep -o 'Log not supported')" ]; then
+    # no logs for this drive..., so... check that it never detected an error?
+    log="C$($SMARTCTL -a $sdrive|
+      grep -A2 'Self-test execution status'|
+      tr '\n' ' '|
+      sed 's/\s\s\+/ /g'|
+      grep -o 'ompleted without error')"
   fi
   [ "$(echo $log|cut -d, -f3)" = "Completed without error" ] && \
     output="1"
@@ -259,12 +267,35 @@ smart_status() {
 smart_status_all() {
   local dr=""
   local status=""
+  [ -z "${ALL_SMART[@]}" ] && identify_drives;
   for dr in "${ALL_SMART[@]}"; do
     [ -z "$status" ] && status="1"
     status=$(($status & $(smart_status $dr)))
   done
   [ -z "$status" ] && status="0"
   echo $status
+}
+
+is_ssd() {
+  local sdrive="$@";
+  local rotation="";
+  rotation="$($SMARTCTL -i $sdrive|
+    grep 'Rotation Rate'|
+    sed 's/\s\s\+/,/g')"
+  [ "$rotation" = "Solid State Device" ] && rotation="1" || rotation="0"
+  printf "%s" "$rotation"
+}
+
+all_ssd() {
+  local dr=""
+  local status=""
+  [ -z "${ALL_SMART[@]}" ] && identify_drives;
+  for dr in "${ALL_SMART[@]}"; do
+    [ -z "$status" ] && status="1"
+    status=$(($status & $(is_ssd $dr)))
+  done
+  [ -z "$status" ] && status="0"
+  printf "%s" "$status"
 }
 
 continue_pause() {

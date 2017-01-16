@@ -49,7 +49,7 @@ packetloss_stats() {
   local percent=$(echo "scale=15;$loss/$total"|bc);
   local pass=$(echo "$percent < 0.02"|bc)
   [ "$pass" = "1" ] && pass="PASS" || pass="FAIL"
-  printf "Large Ping test:%s -> %s/%s lost = %s %% loss\n" \
+  printf "\n\nLarge Ping test:%s -> %s/%s lost = %s %% loss\n" \
     "$pass" "$loss" "$total" "$percent";
 }
 

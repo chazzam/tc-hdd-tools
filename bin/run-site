@@ -22,13 +22,24 @@ checkroot;
 load_cmdline;
 SHRED_RUN=""
 
+call_shred() {
+  if [ "$(all_ssd)" = "1" ]; then
+    # log to shred log that this is ssd and we won't shred
+    printf "\n\nSSDs detected, skipping shred. Run Security Erase instead\n\n"|
+      tee -a L_SHRED
+    return
+  fi
+  shred-all $@ auto
+  SHRED_RUN="1"
+}
+
 smart_shred() {
   # If smart fails, run shred, then run smart again
-  smart-all -a
+  identify_drives;
+  smart_process;
   if [ "$(smart_status_all)" != "1" ]; then
-    shred-all super-long auto
-    SHRED_RUN="1"
-    smart-all -a
+    call_shred "super-long";
+    smart_process;
   fi
 }
 
@@ -39,7 +50,7 @@ if [ -z "$SITE" -o "$SITE" = "DEFAULT" ]; then
 elif [ "$SITE" = "TS" ]; then
   fsck-all long yes
   prompt_lcd
-  smart-all -a
+  smart_process;
   run_hdparm
 elif [ "$SITE" = "HDD" ]; then
   smart_shred
@@ -52,7 +63,7 @@ elif [ "$SITE" = "FA" ]; then
   run_hdparm
   network-tests -i $NETWORK_TEST_SERVER -o $L_NETWORK
   network-tests-stats $L_NETWORK
-  [ -z "$SHRED_RUN" ] && shred-all long auto
+  [ -z "$SHRED_RUN" ] && call_shred long
 fi
 
 # Bundle logs
