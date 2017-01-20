@@ -30,9 +30,13 @@ L_HDPARM="$LOG_DIR/hdparm"
 L_CARDS="$LOG_DIR/cards.lst"
 L_SYSTEM="$LOG_DIR/system.log"
 SHRED_RUN=""
+HDPARM="/usr/local/sbin/hdparm"
 
 exerr() {
-  printf "\n%s\n" $@
+  local msg="$1"
+  shift
+  printf "\n\n$msg\n" $@
+  echo;
   exit 1
 }
 
@@ -65,6 +69,86 @@ filesystem_type() {
   FILE_TYPE="$(file -sL $vol | sed -e 's/.*\(swap\|ext.\).*/\1/')";
 }
 
+detect_cards() {
+  # RAID:: Threeware 13c1:* ; Adaptec 9005:* ; LSI 1000:* ;
+  # Digium Cards: d161:*
+  # Digium PCI-E Active Riser: 111d:806e
+  local cards="$(lspci -n|egrep '((d161|13c1|9005|1000):|111d:806e)'|wc -l)"
+  (
+    printf "\nDetected %s cards:\n" $cards
+    lspci -nn|egrep '((d161|13c1|9005|1000):|111d:806e)'
+  ) | tee -a $L_CARDS
+}
+
+prompt_lcd() {
+  # Run LCD Test?
+  # if yes, log and direct
+  # Press X, (Check), Down, Left, Right, Up
+  # verify that the screen updates correspondingly, and that the Backlight adjusts
+  printf "\n\nRun LCD Test?\n[Yn]: "
+  local y=;
+  read y;
+  [ "$y" = "n" -o "$y" = "N" ] && return
+  (
+    cat<<EOF
+To Test the LCD, Press the keys below, in the order listed.
+Verify that the Front Panel LCD screen updates correspondingly, and that
+the Backlight changes.
+
+Press:
+X, (Check), Down, Left, Right, Up
+
+Did the LCD update properly? [yN]:
+EOF
+  read y
+  if [ "$y" = "y" -o "$y" = "Y" ]; then
+    printf "This shall be logged as LCD Test PASSed\n"
+  else
+    printf "This shall be logged as LCD Test FAILed\n"
+  fi
+  ) | tee -a $L_LCD
+  # get results: egrep -o 'LCD Test ....' $L_LCD|tail -n1|cut -d\  -f3|tr '[:lower:]' '[:upper:]'
+  # leaves you with either 'PASS' or 'FAIL'
+}
+
+load_cmdline() {
+  local arg=""
+  for arg in $(cat /proc/cmdline); do
+      echo $arg | grep -iq "TESTER-";
+      if [ "$?" = "0" ]; then
+          export $(echo $arg | cut -d- -f2);
+      fi;
+  done
+}
+
+prompt_system() {
+  local y=;
+  printf "\n\nStore Case/RMA Number?\n[Yn]: "
+  read y;
+  [ "$y" = "n" -o "$y" = "N" ] && return
+  printf "\nEnter Case/RMA Number: "
+  local rma=
+  read rma;
+  printf "\n\nStore Serial Number?\n[Yn]: "
+  read y;
+  local sn="."
+  if [ "$y" != "n" -a "$y" != "N" ]; then
+    printf "\nEnter Serial Number: "
+    read sn;
+  fi
+  printf "\n\n"
+  printf "RMA=%s\nSERIAL=%s\n" "$rma" "$sn"| tee -a "$L_SYSTEM"
+}
+
+continue_pause() {
+  local y=;
+  echo "Press [Enter] to continue or [ctrl + c] to exit";
+  read y;
+}
+
+
+
+# S.M.A.R.T. utility functions
 identify_drives() {
   if [ "$(lsmod|grep 3w_xxxx|wc -l)" -lt 1 ]; then
     modprobe 3w_xxxx;
@@ -120,7 +204,6 @@ smart_get_id() {
   echo "$id";
 }
 
-#L_SMART
 smart_init() {
   checkroot;
   local sdrive="$@";
@@ -236,7 +319,7 @@ smart_status_log() {
   local sdrive="$@"
   local log=""
   local output="0"
-  $SMARTCTL -Hl selftest $sdrive 2>&1 >> $L_SMART
+  $SMARTCTL -Hl selftest $sdrive >> $L_SMART 2>&1
   log="$($SMARTCTL -l selftest $sdrive|grep ^#|sed -e 's/\s\s\+/,/g;'|
     grep -i $stest|head -n1)"
   if [ -z "$log" -a "$stest" = "Conveyance" ]; then
@@ -283,40 +366,27 @@ smart_status_all() {
   echo $status
 }
 
-is_ssd() {
-  local sdrive="$@";
-  local rotation="";
-  rotation="$($SMARTCTL -i $sdrive|
-    grep 'Rotation Rate'|
-    sed 's/\s\s\+/,/g')"
-  [ "$rotation" = "Solid State Device" ] && rotation="1" || rotation="0"
-  printf "%s" "$rotation"
-}
-
-all_ssd() {
-  local dr=""
-  local status=""
-  [ -z "${ALL_SMART[@]}" ] && identify_drives;
-  for dr in "${ALL_SMART[@]}"; do
-    [ -z "$status" ] && status="1"
-    status=$(($status & $(is_ssd $dr)))
-  done
-  [ -z "$status" ] && status="0"
-  printf "%s" "$status"
-}
-
-continue_pause() {
-  local y=;
-  echo "Press [Enter] to continue or [ctrl + c] to exit";
-  read y;
-}
-
-install_bc() {
-  if [ "$(which bc)" == "" ]; then
-    (sudo -u tc tce-load -wi bc ||
-      sudo -u tc tce-load -wi bc-1.06.94) ||
-      echo "ERROR: 'bc' unavailable" && exit 1
+smart_shred() {
+  # If smart fails, run shred, then run smart again
+  [ -z "${ALL_SMART[0]}" ] && identify_drives;
+  smart_process || exerr "Smart failed to run";
+  if [ "$(smart_status_all)" != "1" ]; then
+    call_shred "super-long";
+    smart_process || exerr "Smart failed to run";
   fi
+}
+
+
+
+# HDPARM timing functions
+install_bc() {
+  [ -z "$(which bc)" ] || return 0
+  # Run tce-load in a subshell so it won't exit this script
+  (
+    sudo -u tc tce-load -wi bc ||
+    sudo -u tc tce-load -wi bc-1.06.94
+  ) ||
+    echo "ERROR: 'bc' unavailable" && exit 1
 }
 
 thousands() {
@@ -364,79 +434,67 @@ run_hdparm() {
   done;
 }
 
-detect_cards() {
-  # RAID:: Threeware 13c1:* ; Adaptec 9005:* ; LSI 1000:* ;
-  # Digium Cards: d161:*
-  # Digium PCI-E Active Riser: 111d:806e
-  local cards="$(lspci -n|egrep '((d161|13c1|9005|1000):|111d:806e)'|wc -l)"
-  (
-    printf "\nDetected %s cards:\n" $cards
-    lspci -nn|egrep '((d161|13c1|9005|1000):|111d:806e)'
-  ) | tee -a $L_CARDS
+
+
+# Tarball functions
+name_tarball() {
+  local tarball="tools-logs"
+  . "${L_SYSTEM}"
+  [ ! -z "$RMA" ] && tarball="${tarball}_${RMA// /-}"
+  [ ! -z "$SERIAL" ] && tarball="${tarball}_${SERIAL// /-}"
+  printf "%s.tar.gz" "$tarball"
 }
 
-prompt_lcd() {
-  # Run LCD Test?
-  # if yes, log and direct
-  # Press X, (Check), Down, Left, Right, Up
-  # verify that the screen updates correspondingly, and that the Backlight adjusts
-  printf "\n\nRun LCD Test?\n[Yn]: "
-  local y=;
-  read y;
-  [ "$y" = "n" -o "$y" = "N" ] && return
-  (
-    cat<<EOF
-To Test the LCD, Press the keys below, in the order listed.
-Verify that the Front Panel LCD screen updates correspondingly, and that
-the Backlight changes.
 
-Press:
-X, (Check), Down, Left, Right, Up
 
-Did the LCD update properly? [yN]: 
-EOF
-  read y
-  if [ "$y" = "y" -o "$y" = "Y" ]; then
-    printf "This shall be logged as LCD Test PASSed\n"
-  else
-    printf "This shall be logged as LCD Test FAILed\n"
-  fi
-  ) | tee -a $L_LCD
-  # get results: egrep -o 'LCD Test ....' $L_LCD|tail -n1|cut -d\  -f3|tr '[:lower:]' '[:upper:]'
-  # leaves you with either 'PASS' or 'FAIL'
+# SSD & Security-Erase/shred functions
+install_hdparm() {
+  # Need the real hdparm, not the busybox version
+  local path=""
+  path=$(readlink -f $(which hdparm)|grep -o busybox)
+  [ -z "$path" ] && return 0
+  # Run tce-load in a subshell so it won't exit this script
+  (sudo -u tc tce-load -wi hdparm) ||
+    echo "ERROR: 'hdparm' unavailable" && exit 1
 }
 
-load_cmdline() {
-  local arg=""
-  for arg in $(cat /proc/cmdline); do
-      echo $arg | grep -iq "TESTER-";
-      if [ "$?" = "0" ]; then
-          export $(echo $arg | cut -d- -f2);
-      fi;
+is_ssd() {
+  local sdrive="$@";
+  local rotation="";
+  rotation="$($SMARTCTL -i $sdrive|
+    grep 'Rotation Rate'|
+    sed 's/\s\s\+/,/g'|
+    cut -d, -f2)"
+  [ "$rotation" = "Solid State Device" ] && rotation="1" || rotation="0"
+  printf "%s" "$rotation"
+}
+
+all_ssd() {
+  local dr=""
+  local status=""
+  [ -z "${ALL_SMART[@]}" ] && identify_drives;
+  for dr in "${ALL_SMART[@]}"; do
+    [ -z "$status" ] && status="1"
+    status=$(($status & $(is_ssd $dr)))
   done
+  [ -z "$status" ] && status="0"
+  printf "%s" "$status"
 }
 
-prompt_system() {
-  local y=;
-  printf "\n\nStore RMA-Number?\n[Yn]: "
-  read y;
-  [ "$y" = "n" -o "$y" = "N" ] && return
-  printf "\nEnter RMA-Number: "
-  local rma=
-  read rma;
-  printf "\n\nStore Serial Number?\n[Yn]: "
-  read y;
-  local sn="."
-  if [ "$y" != "n" -a "$y" != "N" ]; then
-    printf "\nEnter Serial Number: "
-    read sn;
-  fi
-  printf "\n\n"
-  printf "RMA=%s\nSERIAL=%s\n" "$rma" "$sn"| tee -a "$L_SYSTEM"
+any_ssd() {
+  local dr=""
+  local status=""
+  [ -z "${ALL_SMART[@]}" ] && identify_drives;
+  for dr in "${ALL_SMART[@]}"; do
+    [ -z "$status" ] && status="0"
+    status=$(($status | $(is_ssd $dr)))
+  done
+  [ -z "$status" ] && status="0"
+  printf "%s" "$status"
 }
 
 call_shred() {
-  if [ "$(all_ssd)" = "1" ]; then
+  if [ "$(any_ssd)" = "1" ]; then
     # log to shred log that this is ssd and we won't shred
     printf "\n\nSSDs detected, skipping shred. Run Security Erase instead\n\n"|
       tee -a L_SHRED
@@ -448,12 +506,98 @@ call_shred() {
   SHRED_RUN="1"
 }
 
-smart_shred() {
-  # If smart fails, run shred, then run smart again
-  [ -z "${ALL_SMART[0]}" ] && identify_drives;
-  smart_process || exerr "Smart failed to run";
-  if [ "$(smart_status_all)" != "1" ]; then
-    call_shred "super-long";
-    smart_process || exerr "Smart failed to run";
+thaw_drives() {
+  local status="0";local dr="";local line=""
+  [ -z "$SDXS" ] && exerr "ERROR: Must run entire walkthrough"
+  for dr in $SDXS; do
+    line="$($HDPARM -I $dr 2>&1|grep frozen)"
+    if [ -z "$line" ]; then
+      exerr "ERROR: Drive %s could not be read\nPower off and ensure connected directly to motherboard." "$dr"
+    fi
+    line="$(echo $line)" # trim
+    if [ "$line" = "frozen" ]; then
+      # Security still enabled, suspend drive and flag needing pulled
+      printf "Drive %s is frozen\n" "$dr"
+      $HDPARM -Y $dr 2>&1
+      line="1"
+    else
+      line="0"
+    fi
+    status=$(( $status | $line ))
+  done;
+  if [ "$status" = "1" ]; then
+    printf "\n\nDisconnect drives from power/sata and re-insert\n\n"
+    continue_pause;
   fi
+  return $status
+}
+
+set_drive_password() {
+  local dr="$1"
+  [ -z "$dr" ] && exerr "ERROR: Must specify drive"
+  SSD_PASSWORD="Password"
+  $HDPARM --user-master u --security-set-pass $SSD_PASSWORD $dr 2>&1 || \
+    exerr "Couldn't set password for Drive $dr"
+  local line=""
+  line="$($HDPARM -I $dr 2>&1|grep -A5 Security:|grep enabled)"
+  [ -z "$line" ] && \
+    exerr "ERROR unknown failure on setting password on $dr"
+  [ "$line" = "enabled" ] || \
+    exerr "ERROR: Failed to set password on $dr"
+}
+
+erase_drives() {
+  [ -z "$SDXS" ] && exerr "ERROR: Must run entire walkthrough"
+  local mode="$1"
+  [ -z "$mode" ] && mode="erase" || mode="enhanced"
+  local line="";local dr=""
+  for dr in $SDXS; do
+    # Check if enhanced erase supported, skip enhanced erase if not
+    line="$($HDPARM -I $dr 2>&1|grep -A9 Security:|grep enhanced)"
+    [ -z "$line" -a "$mode" = "enhanced" ] && continue
+    [ "$mode" = "enhanced" ] && mode="erase-enhanced"
+    printf "Drive %s: Running security-%s\n" "${dr##/dev/}" "$mode"
+    # Set the security password on the drive
+    set_drive_password $dr
+    # Perform the erase
+    $HDPARM --user-master u --security-${mode} $SSD_PASSWORD $dr 2>&1|| \
+      exerr "Couldn't erase Drive $dr"
+    # Verify it succeeded (security 'not enabled')
+    line="$($HDPARM -I $dr 2>&1|grep -A5 Security:|grep enabled)"
+    [ "$line" = "enabled" ] && \
+      exerr "ERROR ${dr##/dev/} Security-${mode} failed"
+  done;
+}
+
+security_erase_walkthrough() {
+  [ -z "$SDXS" ] && list_disks
+  [ -z "$SDXS" ] && exerr "ERROR: No drives found to work with"
+  [ "$(any_ssd)" = "1" ] || exerr "ERROR: No SSD drives detected"
+
+  ( install_hdparm );
+  cat<<EOF
+
+Please ensure only SSD drives are installed, and that every drive
+is connected directly to the motherboard. Neither Security erase nor
+firmware upgrades can be performed while the drive is connected via
+a RAID card.
+
+If any drives are still connected via a RAID card, power off and correct
+this before continuing.
+
+EOF
+
+  # We want to run thaw_drives at least twice probably
+  # Once to inform them to pull the drives, then again to verify thawing
+  local count=0
+  while [ "$count" -le 4 ]; do
+    thaw_drives && break || count=$(expr $count + 1);
+  done
+  (
+    printf "\nTrying Security Erase on all drives...\n"
+    erase_drives;
+    printf "\nTrying Enhanced Security Erase on all drives...\n"
+    erase_drives "enhanced";
+    printf "\n\n"
+  )| tee -a $L_SHRED
 }

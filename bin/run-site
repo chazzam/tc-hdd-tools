@@ -19,30 +19,39 @@
 
 checkroot;
 
-load_cmdline;
+[ -z "$SITE" ] && load_cmdline;
 
 [ -x /usr/local/etc/init.d/lcdproc ] && /usr/local/etc/init.d/lcdproc start 2>/dev/null
 
-if [ -z "$SITE" -o "$SITE" = "DEFAULT" ]; then
-  fsck-all short yes || exerr "fsck failed to run"
-elif [ "$SITE" = "TS" ]; then
-  fsck-all long yes || exerr "fsck failed to run"
+[ -z "$SITE" ] && SITE="DEFAULT"
+
+if [ "$SITE" = "TS" ]; then
+  prompt_system
+  detect_cards
   prompt_lcd
+  fsck-all long yes || exerr "fsck failed to run"
   smart_process || exerr "Smart failed to run";
   run_hdparm || exerr "hdparm failed to run"
+elif [ "$SITE" = "SSD" ]; then
+  security_erase_walkthrough || exerr "Erase failed to run"
 elif [ "$SITE" = "HDD" ]; then
   smart_shred || exerr "Smart failed to run"
   run_hdparm || exerr "hdparm failed to run"
+  [ -z "$SHRED_RUN" ] && call_shred long
 elif [ "$SITE" = "FA" ]; then
   prompt_system
   detect_cards
   prompt_lcd
   smart_shred || exerr "Smart failed to run"
   run_hdparm || exerr "hdparm failed to run"
-  network-tests -i $NETWORK_TEST_SERVER -o $L_NETWORK || exerr "Network Tests failed to run"
-  network-tests-stats $L_NETWORK || exerr "Network Stats couldn't be collected"
+  network-tests -i "$NETWORK_TEST_SERVER" -o "$L_NETWORK" || exerr "Network Tests failed to run"
+  network-tests-stats "$L_NETWORK" || exerr "Network Stats couldn't be collected"
   [ -z "$SHRED_RUN" ] && call_shred long
+else
+  fsck-all short yes || exerr "fsck failed to run"
 fi
 
 # Bundle logs
-tar -C /tmp -czf tools-logs.tar.gz "${LOG_DIR##/tmp/}"/*
+( cd /tmp;
+  tar -czvf "$(name_tarball)" "${LOG_DIR##/tmp/}"/*
+)
