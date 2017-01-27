@@ -34,6 +34,8 @@ if [ "$SITE" = "TS" ]; then
   run_hdparm || exerr "hdparm failed to run"
 elif [ "$SITE" = "SSD" ]; then
   security_erase_walkthrough || exerr "Erase failed to run"
+  smart_process || exerr "Smart failed to run";
+  run_hdparm || exerr "hdparm failed to run"
 elif [ "$SITE" = "HDD" ]; then
   smart_shred || exerr "Smart failed to run"
   run_hdparm || exerr "hdparm failed to run"
@@ -53,5 +55,12 @@ fi
 
 # Bundle logs
 ( cd /tmp;
-  tar -czvf "$(name_tarball)" "${LOG_DIR##/tmp/}"/*
-)
+  tb="$(name_tarball)"
+  fl="${LOG_DIR##/tmp/}"
+  if [ "$fl" != "${tb%%.tar.gz}" ];then
+    fl="${tb%%.tar.gz}"
+    mv "${LOG_DIR##/tmp/}" "$fl"
+  fi
+  tar -czvf "$tb" "$fl"/* && \
+    printf "\nLogs bundled in /tmp/%s\n" "$tb" ||\
+    printf "\n\nERROR: Failed to bundle logs from:%s into %s" "$LOG_DIR" "$tb"

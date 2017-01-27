@@ -112,4 +112,3 @@ for TEST in ${TESTS[@]}; do
       ;;
   esac;
 done;
-

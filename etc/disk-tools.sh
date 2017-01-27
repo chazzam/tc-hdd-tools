@@ -22,7 +22,7 @@ LOG_DIR="/tmp/tools-logs"
 [ -d $LOG_DIR ] || mkdir -p $LOG_DIR
 L_SMART="$LOG_DIR/smart.log"
 L_DRIVES="$LOG_DIR/drives.lst"
-L_SHRED="$LOG_DIR/shred.log"
+L_SHRED="$LOG_DIR/shred"
 L_NETWORK_STATS="$LOG_DIR/network-stats.log"
 L_NETWORK="$LOG_DIR/network.log"
 L_LCD="$LOG_DIR/lcd.log"
@@ -150,6 +150,7 @@ continue_pause() {
 
 # S.M.A.R.T. utility functions
 identify_drives() {
+  printf "\nChecking drive statuses...\n"
   if [ "$(lsmod|grep 3w_xxxx|wc -l)" -lt 1 ]; then
     modprobe 3w_xxxx;
     sleep 2;
@@ -439,6 +440,7 @@ run_hdparm() {
 # Tarball functions
 name_tarball() {
   local tarball="tools-logs"
+  [ -r "$L_SYSTEM" ] || touch "$L_SYSTEM"
   . "${L_SYSTEM}"
   [ ! -z "$RMA" ] && tarball="${tarball}_${RMA// /-}"
   [ ! -z "$SERIAL" ] && tarball="${tarball}_${SERIAL// /-}"
@@ -465,6 +467,10 @@ is_ssd() {
     grep 'Rotation Rate'|
     sed 's/\s\s\+/,/g'|
     cut -d, -f2)"
+  #~ rotation="$(hdparm -I $sdrive|
+    #~ grep 'Rotation Rate'|
+    #~ cut -d: -f2)"
+  rotation="$(echo $rotation)" #trim
   [ "$rotation" = "Solid State Device" ] && rotation="1" || rotation="0"
   printf "%s" "$rotation"
 }
@@ -472,8 +478,10 @@ is_ssd() {
 all_ssd() {
   local dr=""
   local status=""
-  [ -z "${ALL_SMART[@]}" ] && identify_drives;
+  #~ [ -z "$SDXS" ] && list_disks
+  [ -z "${ALL_SMART[@]}" ] && identify_drives >&2;
   for dr in "${ALL_SMART[@]}"; do
+  #~ for dr in $SDXS; do
     [ -z "$status" ] && status="1"
     status=$(($status & $(is_ssd $dr)))
   done
@@ -484,8 +492,10 @@ all_ssd() {
 any_ssd() {
   local dr=""
   local status=""
-  [ -z "${ALL_SMART[@]}" ] && identify_drives;
+  #~ [ -z "$SDXS" ] && list_disks
+  [ -z "${ALL_SMART[@]}" ] && identify_drives >&2;
   for dr in "${ALL_SMART[@]}"; do
+  #~ for dr in $SDXS; do
     [ -z "$status" ] && status="0"
     status=$(($status | $(is_ssd $dr)))
   done
@@ -510,6 +520,7 @@ thaw_drives() {
   local status="0";local dr="";local line=""
   [ -z "$SDXS" ] && exerr "ERROR: Must run entire walkthrough"
   for dr in $SDXS; do
+    #~ [ "$(is_ssd $dr)" = "1" ] || continue
     line="$($HDPARM -I $dr 2>&1|grep frozen)"
     if [ -z "$line" ]; then
       exerr "ERROR: Drive %s could not be read\nPower off and ensure connected directly to motherboard." "$dr"
@@ -518,9 +529,10 @@ thaw_drives() {
     if [ "$line" = "frozen" ]; then
       # Security still enabled, suspend drive and flag needing pulled
       printf "Drive %s is frozen\n" "$dr"
-      $HDPARM -Y $dr 2>&1
+      $HDPARM -qY $dr 2>&1
       line="1"
     else
+      printf "Drive %s is ready\n" "$dr"
       line="0"
     fi
     status=$(( $status | $line ))
@@ -535,11 +547,13 @@ thaw_drives() {
 set_drive_password() {
   local dr="$1"
   [ -z "$dr" ] && exerr "ERROR: Must specify drive"
+  #~ [ "$(is_ssd $dr)" = "1" ] || return
   SSD_PASSWORD="Password"
-  $HDPARM --user-master u --security-set-pass $SSD_PASSWORD $dr 2>&1 || \
+  $HDPARM --user-master u --security-set-pass $SSD_PASSWORD $dr >/dev/null 2>&1 || \
     exerr "Couldn't set password for Drive $dr"
   local line=""
   line="$($HDPARM -I $dr 2>&1|grep -A5 Security:|grep enabled)"
+  line="$(echo $line)"
   [ -z "$line" ] && \
     exerr "ERROR unknown failure on setting password on $dr"
   [ "$line" = "enabled" ] || \
@@ -548,24 +562,27 @@ set_drive_password() {
 
 erase_drives() {
   [ -z "$SDXS" ] && exerr "ERROR: Must run entire walkthrough"
-  local mode="$1"
-  [ -z "$mode" ] && mode="erase" || mode="enhanced"
+  local erase="$1"
+  [ -z "$erase" ] && erase="erase" || erase="erase-enhanced"
   local line="";local dr=""
   for dr in $SDXS; do
+    #~ [ "$(is_ssd $dr)" = "1" ] || continue
     # Check if enhanced erase supported, skip enhanced erase if not
-    line="$($HDPARM -I $dr 2>&1|grep -A9 Security:|grep enhanced)"
-    [ -z "$line" -a "$mode" = "enhanced" ] && continue
-    [ "$mode" = "enhanced" ] && mode="erase-enhanced"
-    printf "Drive %s: Running security-%s\n" "${dr##/dev/}" "$mode"
+    line="$($HDPARM -I $dr 2>&1|grep -A9 Security:|grep enhanced|grep -o not)"
+    [ "not" = "$line" -a "$erase" = "erase-enhanced" ] &&\
+      printf "\n\nDrive %s: Enhanced Erase not supported, skipping\n" "$dr" &&\
+      continue
+    printf "\n\nDrive %s: Running security-%s\n" "${dr##/dev/}" "$erase"
     # Set the security password on the drive
     set_drive_password $dr
     # Perform the erase
-    $HDPARM --user-master u --security-${mode} $SSD_PASSWORD $dr 2>&1|| \
-      exerr "Couldn't erase Drive $dr"
+    $HDPARM --user-master u --security-${erase} $SSD_PASSWORD $dr 2>&1|| \
+      exerr "Couldn't $erase Drive $dr"
     # Verify it succeeded (security 'not enabled')
     line="$($HDPARM -I $dr 2>&1|grep -A5 Security:|grep enabled)"
+    line="$(echo $line)"
     [ "$line" = "enabled" ] && \
-      exerr "ERROR ${dr##/dev/} Security-${mode} failed"
+      exerr "ERROR ${dr##/dev/} Security-${erase} failed"
   done;
 }
 
@@ -585,8 +602,16 @@ a RAID card.
 If any drives are still connected via a RAID card, power off and correct
 this before continuing.
 
+WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!
+This operation will wipe the contents and file system of the
+confirmed drives. This operation is intended to be unrecoverable.
+Ensure you have good working backups of any important data.
+We will not be held liable for any lost data as a result of this process
+WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!
+
 EOF
 
+  continue_pause
   # We want to run thaw_drives at least twice probably
   # Once to inform them to pull the drives, then again to verify thawing
   local count=0
@@ -594,9 +619,9 @@ EOF
     thaw_drives && break || count=$(expr $count + 1);
   done
   (
-    printf "\nTrying Security Erase on all drives...\n"
+    printf "\n\nTrying Security Erase on all drives...\n"
     erase_drives;
-    printf "\nTrying Enhanced Security Erase on all drives...\n"
+    printf "\n\nTrying Enhanced Security Erase on all drives...\n"
     erase_drives "enhanced";
     printf "\n\n"
   )| tee -a $L_SHRED

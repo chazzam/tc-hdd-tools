@@ -36,38 +36,62 @@ fi
 # Build list of standard volumes
 list_disks;
 
-echo -e "\n\n\nFound these potential devices: ";
-echo $SDXS;
-echo;
-echo "WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!";
-echo "This operation will wipe the contents and file system of the ";
-echo "confirmed drives. This operation is intended to be unrecoverable.";
-echo "Ensure you have good working backups of any important data.";
-echo "We will not be held liable for any lost data as a result of this process";
-echo "WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!";
-echo;
+  cat<<EOF
+
+
+
+Found these potential devices:
+$SDXS
+
+WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!
+This operation will wipe the contents and file system of the
+confirmed drives. This operation is intended to be unrecoverable.
+Ensure you have good working backups of any important data.
+We will not be held liable for any lost data as a result of this process
+WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!
+
+EOF
 
 this_run=""
 for vol in $SDXS; do
+  L_SHRED_VOL="${L_SHRED}_${vol##/dev/}.log"
   echo -n "Erase disk at ${vol}? [YES|no]: ";
-  [ ! -z "$AUTO" ] && \
-    y="YES" || \
+  if [ ! -z "$AUTO" ]; then
+    y="YES"
+  else
     read y;
+  fi
   if [ ! -z "$shred_args" ] && [ "$y" = "YES" ]; then
     this_run="$shred_args $vol"
   elif [ "$y" = "YES" ]; then
     this_run="-fvz $vol"
-  elif [ "$y" -ge "1" ]; then
-    this_run="-fv -n $y $vol"
   else
     echo -e "\nNot wiping ${vol}, did you mean to say 'YES'?...";
+    continue
   fi;
-  echo "shred $this_run" >> $L_SHRED
-  $SUDO shred $this_run 2>&1|tee -a $L_SHRED
+  echo "shred $this_run" >> "$L_SHRED_VOL"
+  # Sleep for 30 seconds to give time to answer questions for remaining drives
+  # Run shred in the background and inform when done.
+  sleep 30 &&\
+    "$SUDO" shred "$this_run" 2>&1|tee -a "$L_SHRED_VOL" &&\
+    printf "shred done\n\n"|tee -a "$L_SHRED_VOL" ||\
+    printf "\n\nERROR: shred encountered an error\n\n"|\
+    tee -a "$L_SHRED_VOL" &
 done;
-printf "shred done\n\n"|tee -a $L_SHRED
+
+# Make sure shred has started running
+if [ ! -z "$this_run" ]; then
+  sleep 30
+else
+  exerr "ERROR: shred was never run"
+fi
+# Sleep for 10 minutes at a time while shred is running
+while [ ! -z "$(pidof shred)" ]; do
+  sleep 600;
+done;
+
 # Pare down the size of the log by removing the progress lines
-sed -i -n '/ [0-9][0-9]\?[0-9]\?%/{h;$!b;g};x;p' $L_SHRED
+sed -i -n '/ [0-9][0-9]\?[0-9]\?%/{h;$!b;g};x;p' ${L_SHRED}*
 # match a progress line, put it in hold space, next line (branch) if not end, copy hold to pattern space
 # if not a match, replace pattern with hold, and print
 # will otherwise delete the last line of the file, and the last line before each match
@@ -76,4 +100,4 @@ sed -i -n '/ [0-9][0-9]\?[0-9]\?%/{h;$!b;g};x;p' $L_SHRED
 [ ! -z "$AUTO" ] && exit 0
 echo -e "\n\n\nPress [Enter] to reboot. [ctrl + c] to exit."
 read y
-${SUDO} reboot;
+"${SUDO}" reboot;
