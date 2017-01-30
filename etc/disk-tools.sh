@@ -479,7 +479,7 @@ all_ssd() {
   local dr=""
   local status=""
   #~ [ -z "$SDXS" ] && list_disks
-  [ -z "${ALL_SMART[@]}" ] && identify_drives >&2;
+  [ -z "${ALL_SMART[0]}" ] && identify_drives >&2;
   for dr in "${ALL_SMART[@]}"; do
   #~ for dr in $SDXS; do
     [ -z "$status" ] && status="1"
@@ -493,7 +493,7 @@ any_ssd() {
   local dr=""
   local status=""
   #~ [ -z "$SDXS" ] && list_disks
-  [ -z "${ALL_SMART[@]}" ] && identify_drives >&2;
+  [ -z "${ALL_SMART[0]}" ] && identify_drives >&2;
   for dr in "${ALL_SMART[@]}"; do
   #~ for dr in $SDXS; do
     [ -z "$status" ] && status="0"
