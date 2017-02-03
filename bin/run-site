@@ -64,3 +64,4 @@ fi
   tar -czvf "$tb" "$fl"/* && \
     printf "\nLogs bundled in /tmp/%s\n" "$tb" ||\
     printf "\n\nERROR: Failed to bundle logs from:%s into %s" "$LOG_DIR" "$tb"
+)

@@ -73,7 +73,7 @@ for vol in $SDXS; do
   # Sleep for 30 seconds to give time to answer questions for remaining drives
   # Run shred in the background and inform when done.
   sleep 30 &&\
-    "$SUDO" shred "$this_run" 2>&1|tee -a "$L_SHRED_VOL" &&\
+    "$SUDO" shred $this_run 2>&1|tee -a "$L_SHRED_VOL" &&\
     printf "shred done\n\n"|tee -a "$L_SHRED_VOL" ||\
     printf "\n\nERROR: shred encountered an error\n\n"|\
     tee -a "$L_SHRED_VOL" &
