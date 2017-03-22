@@ -23,3 +23,21 @@ for dr in "${ALL_SMART[@]}"; do
   smart_check "$dr";
   echo;
 done;
+
+# Add a -H check for failure/failing attributes. Print a message to Replace drive ASAP
+# Check return value mask, bits 3-5 (inclusive) are failures for us
+# 3: Disk Failing, 4: Attributes failing, 5: Attributes have failed in the past
+# val=$?; mask=1
+# for i in 0 1 2 3 4 5 6 7; do
+#   echo "Bit $i: $(((val & mask) && 1))"
+#   mask=$((mask << 1))
+# done
+# check bit 3 only: smartstat=$(($val & 8)) # 8=2^3
+
+
+# Add a collection of the attributes with these extra format flags:
+# -f brief -f hex,id
+# smartctl -f brief $vol|sed -ne '/SMART Attributes/,/^$/ { s/^\s\+//;s/\s\+/,/g;p; }'
+
+# Search out the main ones we care about, for at least Kingston SSDs
+# Expand into regular HDDs, and Intel & Toshiba SSDs

@@ -42,17 +42,23 @@ exerr() {
 
 list_sdxn() {
   checkroot;
+  local usb="";
+  usb="$(identify_usb)"
   SDX_VOLS="$(fdisk -l /dev/sd* 2>&1 |
       grep Linux|grep -v LVM|awk '{print $1; }')
       ";
+  SDX_VOLS="$(echo $SDX_VOLS|sed s#${usb}[0-9]?##g)"
 }
 
 list_disks() {
   checkroot;
+  local usb="";
+  usb="$(identify_usb)"
   SDXS="$(fdisk -l /dev/sd? 2>&1 |
     grep -Ev 'No such device|Cannot open|identifier'|grep Disk|
     awk '{print $2; }' | sed -e 's/://g'|sort|uniq;
   )";
+  SDXS="$(echo $SDXS|sed s#${usb}##g)"
 }
 
 list_lvm() {
@@ -146,7 +152,12 @@ continue_pause() {
   read y;
 }
 
-
+identify_usb() {
+  local labels=""
+  labels="$(blkid|egrep -i 'SWVXINIT|SYSDIAG'|grep -o '/dev/sd.'|sort|uniq|head -n1)"
+  [ -z "$labels" ] && labels="no-diag-or-install-usb-found"
+  echo $labels
+}
 
 # S.M.A.R.T. utility functions
 identify_drives() {
@@ -162,9 +173,13 @@ identify_drives() {
   local drives_raw=""
   readarray -t drives_raw <<<"$found_raw $adaptec_raw"
   echo "smart,smart_id,conveyance" > $L_DRIVES;
+  local usb_drives=""
+  usb_drive="$(identify_usb)"
 
   local i=0;
   for dr in "${drives_raw[@]}"; do
+    # Skip the usb drive
+    [ -z "$(echo $dr|grep $usb_drive)" ] || continue;
     # Require it to be available, not to have failed, and to have a self-assessment
     [ -z "$(smartctl -a $dr|grep SMART|grep Available)" ] && continue;
     [ -z "$(smartctl -a $dr|grep SMART|grep 'command failed')" ] || continue;
@@ -301,16 +316,31 @@ smart_wait() {
   #~ continue_pause;
 }
 
+# $SMARTCTL -a $sdrive|\
+# sed -ne '/SMART Attributes/,/^$/ { s/^\s\+//;s/\s\+/,/g;p; }'
 smart_check() {
   local sdrive="$@";
   local id=$(smart_get_id $sdrive)
   [ -z "$id" ] && id="${sdrive%% *}";
   (
-    echo "Checking $id";
-    $SMARTCTL -a $sdrive|grep SMART|grep 'self-assessment'
+    echo "Checking [$id] $sdrive";
+    $SMARTCTL -H $sdrive|tail -n+5
+    drive_fail="${PIPESTATUS[0]}"
+    $SMARTCTL -f brief -a $sdrive|sed -ne '/SMART Attributes/,/^$/ { p; }'
     $SMARTCTL -cl selftest $sdrive|\
           grep -EA1 -B1 'Self-test execution|^#\s+[0-3]'|\
           grep -v Offline
+    # Check bits 3,4,5 of smartctl -H call
+    smartstat=$(($drive_fail & 8) | ($drive_fail & 16) | ($drive_fail & 32))
+    [ "$smartstat" = "1" ] &&\
+      cat<<EOT
+
+
+WARNING: Drive [$id] ${sdrive%% *} is FAILING
+This drive should be backed up and replaced ASAP
+
+
+EOT
   )|tee -a $L_SMART
 }
 
