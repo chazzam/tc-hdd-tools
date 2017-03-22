@@ -154,7 +154,7 @@ continue_pause() {
 
 identify_usb() {
   local labels=""
-  labels="$(blkid|egrep -i 'SWVXINIT|SYSDIAG'|grep -o '/dev/sd.'|sort|uniq|head -n1)"
+  labels="$(blkid|egrep -i 'SWVXINST|SYSDIAG'|grep -o '/dev/sd.'|sort|uniq|head -n1)"
   [ -z "$labels" ] && labels="no-diag-or-install-usb-found"
   echo $labels
 }
@@ -228,16 +228,14 @@ smart_init() {
 
   local vol="$(echo $sdrive|cut -d\  -f1)";
   local args="$(echo $sdrive|cut -d\  -f2-)";
-  (
     #echo -e "\n===============================================================================";
     echo "Initiating $id using $sdrive";
     $SMARTCTL -i $sdrive 2>&1|\
-        grep -E 'Model Family:|Device Model:|Serial Number:|User Capacity:';
-    $SMARTCTL -s on -S on -o on $sdrive 2>&1|grep SMART;
+        grep -E 'Model Family:|Device Model:|Serial Number:|User Capacity:'|tee /tmp/"${id}".txt;
+    $SMARTCTL -s on -S on -o on $sdrive 2>&1|grep SMART|tee -a /tmp/"${id}".txt;
     #$SMARTCTL -c $sdrive;
     $SMARTCTL -H $sdrive 2>&1|grep "test result";
     echo -e "===============================================================================\n";
-  ) | tee -a $L_SMART
 }
 
 smart_test() {
@@ -251,7 +249,7 @@ smart_test() {
   $SMARTCTL -t $stest $sdrive > /tmp/smart_test_time.txt
   SMART_TIME="$(grep -i 'please wait' /tmp/smart_test_time.txt|
     grep -Eio ' [0-9]+ (minutes|hours|days)')";
-  echo "Test:$stest on ${id} should take about ${SMART_TIME## }."|tee -a $L_SMART
+  echo "Test:$stest on ${id} should take about ${SMART_TIME## }."
 }
 
 smart_process() {
@@ -268,13 +266,46 @@ smart_process() {
       local id=$(smart_get_id $dr)
       [ -z "$id" ] && id="${dr%% *}";
       if [ "$t" = "conveyance" -a -z "${ALL_CONVEYANCE[$i]}" ]; then
-        echo "Conveyance test not supported on $id"|tee -a $L_SMART
+        echo "Conveyance test not supported on $id"|tee -a /tmp/"${id}".txt
       else
         smart_test "$t" "$dr";
       fi;
       i=$(expr $i + 1);
     done;
     smart_wait;
+  done;
+  # update log
+  update_smart_log;
+}
+
+# $SMARTCTL -a $sdrive|\
+# sed -ne '/SMART Attributes/,/^$/ { s/^\s\+//;s/\s\+/,/g;p; }'
+update_smart_log() {
+  echo "" > $L_SMART;
+  [ -z "${ALL_SMART[0]}" ] && identify_drives;
+  for dr in "${ALL_SMART[@]}"; do
+    local id=$(smart_get_id $dr)
+    (
+      cat /tmp/"${id}".txt 2>/dev/null;
+      $SMARTCTL -H $sdrive 2>&1|tail -n+5
+      drive_fail="${PIPESTATUS[0]}"
+      $SMARTCTL -cl selftest $sdrive|\
+            grep -EA1 -B1 'Self-test execution|^#\s+[0-3]'|\
+            grep -v Offline
+      $SMARTCTL -f brief -a $sdrive|sed -ne '/SMART Attributes/,/^$/ { p; }'
+      # Check bits 3,4,5 of smartctl -H call
+      smartstat=$(( (($drive_fail & 8)) | (($drive_fail & 16)) | (($drive_fail & 32)) ))
+      [ "$smartstat" = "1" ] &&\
+        cat<<EOT
+
+
+WARNING: Drive [$id] ${sdrive%% *} is FAILING
+This drive should be backed up and replaced ASAP
+
+
+EOT
+      echo -e "===============================================================================\n";
+    ) >> $L_SMART
   done;
 }
 
@@ -311,37 +342,21 @@ smart_wait() {
   for dr in "${ALL_SMART[@]}"; do
     smart_check "$dr";
   done;
+  echo;
   echo "Waiting 5 seconds before continuing... [ctrl + c] to exit if needed"
   sleep 5;
   #~ continue_pause;
 }
 
-# $SMARTCTL -a $sdrive|\
-# sed -ne '/SMART Attributes/,/^$/ { s/^\s\+//;s/\s\+/,/g;p; }'
 smart_check() {
   local sdrive="$@";
   local id=$(smart_get_id $sdrive)
   [ -z "$id" ] && id="${sdrive%% *}";
-  (
-    echo "Checking [$id] $sdrive";
-    $SMARTCTL -H $sdrive|tail -n+5
-    drive_fail="${PIPESTATUS[0]}"
-    $SMARTCTL -f brief -a $sdrive|sed -ne '/SMART Attributes/,/^$/ { p; }'
-    $SMARTCTL -cl selftest $sdrive|\
-          grep -EA1 -B1 'Self-test execution|^#\s+[0-3]'|\
-          grep -v Offline
-    # Check bits 3,4,5 of smartctl -H call
-    smartstat=$(($drive_fail & 8) | ($drive_fail & 16) | ($drive_fail & 32))
-    [ "$smartstat" = "1" ] &&\
-      cat<<EOT
-
-
-WARNING: Drive [$id] ${sdrive%% *} is FAILING
-This drive should be backed up and replaced ASAP
-
-
-EOT
-  )|tee -a $L_SMART
+  echo "Checking [$id] -cl selftest $sdrive";
+  $SMARTCTL -cl selftest $sdrive|\
+        grep -EA1 -B1 'Self-test execution|^#\s+[0-3]'|\
+        grep -v Offline
+  echo
 }
 
 smart_status_log() {
@@ -349,8 +364,7 @@ smart_status_log() {
   shift
   local sdrive="$@"
   local log=""
-  local output="0"
-  $SMARTCTL -Hl selftest $sdrive >> $L_SMART 2>&1
+  local output=0
   log="$($SMARTCTL -l selftest $sdrive|grep ^#|sed -e 's/\s\s\+/,/g;'|
     grep -i $stest|head -n1)"
   if [ -z "$log" -a "$stest" = "Conveyance" ]; then
@@ -366,34 +380,36 @@ smart_status_log() {
       grep -o 'ompleted without error')"
   fi
   [ "$(echo $log|cut -d, -f3)" = "Completed without error" ] && \
-    output="1"
+    output=1
   echo $output
 }
 
 smart_status() {
   local sdrive="$@";
-  local overall="0"
-  local short="0"
-  local conveyance="1"
-  local long="0"
+  local overall=0
+  local short=0
+  local conveyance=1
+  local long=0
   overall="$($SMARTCTL -H $sdrive|grep SMART|grep 'self-assessment'|
     grep -o ': ....'|cut -d\  -f2)"
-  [ "$overall" = "PASS" ] && overall=1 || overall="0"
+  [ "$overall" = "PASS" ] && overall=1 || overall=0
   short="$(smart_status_log Short $sdrive)"
   conveyance="$(smart_status_log Conveyance $sdrive)"
   long="$(smart_status_log Extended $sdrive)"
-  echo $(( $overall & $short & $conveyance & $long ))
+  echo $(( overall & short & conveyance & long ))
 }
 
 smart_status_all() {
   local dr=""
   local status=""
+  local stat_tmp=0
   [ -z "${ALL_SMART[0]}" ] && identify_drives;
   for dr in "${ALL_SMART[@]}"; do
-    [ -z "$status" ] && status="1"
-    status=$(($status & $(smart_status $dr)))
+    [ -z "$status" ] && status=1
+    stat_tmp=$(smart_status $dr)
+    status=$(( status & stat_tmp ))
   done
-  [ -z "$status" ] && status="0"
+  [ -z "$status" ] && status=0
   echo $status
 }
 
@@ -402,8 +418,10 @@ smart_shred() {
   [ -z "${ALL_SMART[0]}" ] && identify_drives;
   smart_process || exerr "Smart failed to run";
   if [ "$(smart_status_all)" != "1" ]; then
-    call_shred "super-long";
-    smart_process || exerr "Smart failed to run";
+    call_shred "long";
+    if [ ! -z "$SHRED_RUN" ]; then
+      smart_process || exerr "Smart failed to run";
+    fi;
   fi
 }
 

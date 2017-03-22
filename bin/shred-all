@@ -27,7 +27,7 @@ checkroot;
 shred_args="$1";
 shift;
 if [ "$shred_args" = "long" ]; then
-  shred_args="-fvz -n 7"
+  shred_args="-fvz -n 8"
 elif [ "$shred_args" = "super-long" ]; then
   shred_args="-fvz -n 30"
 fi
