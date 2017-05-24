@@ -638,11 +638,6 @@ erase_drives() {
 }
 
 security_erase_walkthrough() {
-  [ -z "$SDXS" ] && list_disks
-  [ -z "$SDXS" ] && exerr "ERROR: No drives found to work with"
-  [ "$(any_ssd)" = "1" ] || exerr "ERROR: No SSD drives detected"
-
-  ( install_hdparm );
   cat<<EOF
 
 Please ensure only SSD drives are installed, and that every drive
@@ -653,12 +648,22 @@ a RAID card.
 If any drives are still connected via a RAID card, power off and correct
 this before continuing.
 
+
+EOF
+  [ -z "$SDXS" ] && list_disks
+  [ -z "$SDXS" ] && exerr "ERROR: No drives found to work with"
+  [ "$(any_ssd)" = "1" ] || exerr "ERROR: No SSD drives detected"
+
+  ( install_hdparm );
+  cat<<EOF
+
+
 WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!
 This operation will wipe the contents and file system of the
 confirmed drives. This operation is intended to be unrecoverable.
 Ensure you have good working backups of any important data.
 We will not be held liable for any lost data as a result of this process
-WARNING!!! WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!!
+WARNING!!! WARNING!!! TAKE HEED!!! WARNING!!! WARNING!!!
 
 EOF
 
