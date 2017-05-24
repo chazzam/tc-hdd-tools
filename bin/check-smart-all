@@ -19,12 +19,7 @@
 checkroot;
 
 identify_drives;
-#~ for dr in "${ALL_SMART[@]}"; do
-  #~ smart_check "$dr";
-  #~ echo;
-#~ done;
 update_smart_log;
-cat $L_SMART
 
 
 # Add a collection of the attributes with these extra format flags:

@@ -31,6 +31,7 @@ L_CARDS="$LOG_DIR/cards.lst"
 L_SYSTEM="$LOG_DIR/system.log"
 SHRED_RUN=""
 HDPARM="/usr/local/sbin/hdparm"
+SMART_INIT_ALL=""
 
 exerr() {
   local msg="$1"
@@ -216,6 +217,7 @@ smart_get_id() {
   for d in "${ALL_SMART[@]}"; do
     [ "$d" = "$sdrive" ] && id="${ALL_SMART_ID[$i]}"
     i=$(expr $i + 1);
+    [ -z "$id" ] || break;
   done
   echo "$id";
 }
@@ -259,6 +261,7 @@ smart_process() {
   for dr in "${ALL_SMART[@]}"; do
     smart_init "$dr";
   done;
+  SMART_INIT_ALL="1"
   [ -z "$TESTS" ] && TESTS="short conveyance long"
   for t in $TESTS; do
     local i=0;
@@ -285,14 +288,15 @@ update_smart_log() {
   [ -z "${ALL_SMART[0]}" ] && identify_drives;
   for dr in "${ALL_SMART[@]}"; do
     local id=$(smart_get_id $dr)
+     [ -z "$SMART_INIT_ALL" ] && smart_init "$dr" 1>/dev/null
     (
       cat /tmp/"${id}".txt 2>/dev/null;
-      $SMARTCTL -H $sdrive 2>&1|tail -n+5
+      $SMARTCTL -H $dr 2>&1|tail -n+5
       drive_fail="${PIPESTATUS[0]}"
-      $SMARTCTL -cl selftest $sdrive|\
+      $SMARTCTL -cl selftest $dr|\
             grep -EA1 -B1 'Self-test execution|^#\s+[0-3]'|\
             grep -v Offline
-      $SMARTCTL -f brief -a $sdrive|sed -ne '/SMART Attributes/,/^$/ { p; }'
+      $SMARTCTL -f brief -a $dr|sed -ne '/SMART Attributes/,/^$/ { p; }'
       # Check bits 3,4,5 of smartctl -H call
       smartstat=$(( (($drive_fail & 8)) | (($drive_fail & 16)) | (($drive_fail & 32)) ))
       [ "$smartstat" = "1" ] &&\
@@ -305,7 +309,7 @@ This drive should be backed up and replaced ASAP
 
 EOT
       echo -e "===============================================================================\n";
-    ) >> $L_SMART
+    ) | tee -a $L_SMART
   done;
 }
 
@@ -345,7 +349,6 @@ smart_wait() {
   echo;
   echo "Waiting 5 seconds before continuing... [ctrl + c] to exit if needed"
   sleep 5;
-  #~ continue_pause;
 }
 
 smart_check() {
